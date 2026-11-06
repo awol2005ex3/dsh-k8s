@@ -18,6 +18,9 @@ import { registerNetworkPolicyTools } from './tools/network-policy.js'
 import { registerDiagnoseTools } from './tools/diagnose.js'
 import { registerIstioTools } from './tools/istio.js'
 import { registerComponentStatusTools } from './tools/component-status.js'
+import { registerSearchLogsTools } from './tools/search-logs.js'
+import { registerSearchExecTools } from './tools/search-exec.js'
+import { registerJvmTools } from './tools/scan-java.js'
 import { registerBuiltinSkills } from './skill.js'
 
 // dsh 约定：入口模块导出 Config schema 常量（volatile 字段渲染为设置表单）。
@@ -42,6 +45,9 @@ export const inject = ['tools'] as const
  *   exec.ts           — Pod 内命令执行（排查用）
  *   metrics.ts        — metrics-server 指标
  *   multi-logs.ts     — 多 Pod 日志（按工作负载 / labelSelector）
+ *   search-logs.ts    — 多 Pod 日志批量 grep（-A/-B 上下文，替代 logs | grep）
+ *   search-exec.ts    — 多 Pod exec 输出批量 grep（替代 exec | grep）
+ *   scan-java.ts      — Java 应用识别 + JVM 参数解析与红线判读
  *   ingress.ts        — Ingress 体检与 URL 链路追踪
  *   helm.ts           — Helm 3 release 只读查看（解析 Secret，不依赖 helm 命令）
  *   storage-trace.ts  — PV / PVC → Pod 存储链路
@@ -67,6 +73,9 @@ export function apply(ctx: Context, config: import('./types.js').Config): void {
   registerExecTools(ctx, config)
   registerMetricsTools(ctx, config)
   registerMultiLogTools(ctx, config)
+  registerSearchLogsTools(ctx, config)
+  registerSearchExecTools(ctx, config)
+  registerJvmTools(ctx, config)
   registerIngressTools(ctx, config)
   registerHelmTools(ctx, config)
   registerStorageTraceTools(ctx, config)

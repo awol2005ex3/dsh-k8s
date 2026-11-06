@@ -116,6 +116,7 @@ plugin:
 | 工具 | 说明 |
 |------|------|
 | `k8s_pod_exec` | 在容器内执行命令（WebSocket exec 子资源），返回 `output` 与真实 `exitCode` |
+| `k8s_search_pod_exec` | 多 Pod 批量执行同一条只读命令并按 grep 语义过滤输出（见「大规模 Pod 搜索」） |
 
 示例：`{ pod: "coredns-xxx", namespace: "kube-system", command: ["sh", "-c", "ps aux"] }`。
 多容器 Pod 用 `container` 指定容器名。**该工具定位是只读排查**（ps / netstat / cat / env / curl / nslookup 等），不做任何写操作封装。
@@ -143,8 +144,41 @@ plugin:
 | 工具 | 说明 |
 |------|------|
 | `k8s_read_pod_logs_multi` | 按工作负载（`kind` + `name`）或 `labelSelector` 批量读取多个 Pod 的日志，等价于 stern / `kubectl logs -l`，但不需要外部命令。单次默认最多 20 个 Pod、每容器 100 行，可调 `maxPods` / `tailLines` |
+| `k8s_search_pod_logs` | 多 Pod 日志批量 grep（`-A/-B` 上下文、正则 / 忽略大小写），见「大规模 Pod 搜索」 |
+| `k8s_scan_java_pods` | 识别 Java 应用容器并解析 JVM 参数与红线告警，见「大规模 Pod 搜索」 |
 
 并发控制在 5 以内，自动排除已 Succeeded 的 Pod；多 Pod 时每行带 `[pod/container]` 前缀。
+
+### 大规模 Pod 搜索（grep 语义，替代 `kubectl logs/exec | grep -A -B`）
+
+排查「几十个 Pod 里哪些日志出现 xxx」「逐个 exec 再 grep 太慢」时使用。三个工具共享同一套参数与输出结构：
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_search_pod_logs` | 批量读取多个 Pod 的日志并按 `grep -A/-B` 语义返回命中行与上下文。替代 `for pod in ...; do kubectl logs $pod \| grep xxx -A 11 -B 20; done` |
+| `k8s_search_pod_exec` | 在多个 Pod 容器内批量执行同一条**只读**命令，对输出按 `grep -A/-B` 语义搜索。替代 `kubectl exec ... \| grep zzz -A 111 -B 20` |
+| `k8s_scan_java_pods` | 扫描多个 Pod，识别哪些是 Java 应用并解析 JVM 参数（`-Xmx` / `-Xms` / `-Xmn` / Metaspace / 线程数），与 `limits.memory` 比对给出红线告警 |
+
+共享参数（三个工具一致）：
+
+- **范围**：`labelSelector` 或 `kind` + `name`（deployment/statefulset/daemonset/replicaset/job）、`namespace` / `allNamespaces`、`podNameRegex` 正则再过滤、`container` 指定容器、`includeCompleted`、`maxPods`（缺省 50，上限 500）、`concurrency`（缺省 5）。
+- **grep 语义**：`pattern` 必填；`regex`（等价 `-E`）、`ignoreCase`（等价 `-i`）、`before`（等价 `-B`）、`after`（等价 `-A`）。命中行 `:` 标记、上下文行 `-` 标记、多段命中 `--` 分隔，与 `grep -n` 输出一致。
+- **防刷屏闸门**：`maxMatches`（单容器流命中上限）、`maxTotalMatches`（全局命中上限）、`maxChars`（渲染文本字符上限），任一触达即 `truncated: true`。
+- **输出**：摘要（扫描数 / 命中数）+ 命中容器清单 + 带标签 `[namespace/pod/container]` 的上下文原文 + 读取失败列表。
+
+`k8s_search_pod_logs` 额外支持 `tailLines`（缺省 500）、`sinceSeconds`、`timestamps`、`previous`（上次容器实例）。
+
+`k8s_search_pod_exec` 的 `command` 仅限只读命令（`ps` / `env` / `cat` / `ls` 等），破坏性命令（rm / dd / mkfs / kill 等）会被直接拒绝；输出头部附非零退出码。
+
+`k8s_scan_java_pods` 两阶段取证：先从 Pod spec（command / args / `JAVA_OPTS` 类 env）识别，再对容器内执行只读取证脚本（`/proc/1/cmdline`、`ps`、`env`、`/proc/*/task` 线程计数）合并证据。红线判读与 `dsh-k8s-jvm-diagnosis` 知识卡一致：
+
+- `-Xmx` 超过容器 `limits.memory`（运行时堆被压限甚至 OOMKilled）
+- `-Xms` 超过容器 `limits.memory`（启动即可能崩溃）
+- `-Xms` > `-Xmx`（调优错误）
+
+示例：`{ cluster: "prod", allNamespaces: true, pattern: "OutOfMemoryError", ignoreCase: true, after: 11, before: 20 }`
+示例：`{ cluster: "prod", kind: "deployment", name: "order-api", command: ["sh", "-c", "ps -eLf | wc -l"], pattern: "\\d+" }`
+示例：`{ cluster: "prod", allNamespaces: true, maxPods: 200 }` → 列出全部 Java 容器与其 JVM 参数红线
 
 ### Helm release（不依赖 helm 命令）
 
@@ -196,6 +230,12 @@ src/
   config.ts           # schemastery 配置 + kubeconfig/client 构造
   types.ts            # 配置与客户端类型
   helpers.ts          # 渲染与元信息提取的公共小工具
+  pod-targets.ts      # Pod 定位共享模块（selector / 工作负载 / 正则过滤）
+  pod-exec.ts         # exec 核心共享模块（流收集 / 退出码解析）
+  grep.ts             # grep 引擎（-A/-B 上下文、窗口合并、-- 分隔）
+  search-common.ts    # 多流搜索装配（全局命中/字符上限、渲染）
+  search-params.ts    # 三个搜索工具的共享参数与默认值收口
+  jvm.ts              # JVM 参数解析 / 内存单位换算 / 红线判读
   client.ts           # 浏览器半：设置面板（由 scripts/wrap-client.mjs 包装）
   tools/
     clusters.ts       # 集群 / 连接测试 / 节点
@@ -208,6 +248,9 @@ src/
     exec.ts           # Pod 内命令执行
     metrics.ts        # metrics-server 指标
     multi-logs.ts     # 多 Pod 日志（按工作负载 / labelSelector）
+    search-logs.ts    # 多 Pod 日志批量 grep（-A/-B 上下文）
+    search-exec.ts    # 多 Pod exec 输出批量 grep
+    scan-java.ts      # Java 应用识别 + JVM 参数解析
     ingress.ts        # Ingress 体检（TLS/后端）与 URL 链路追踪
     helm.ts           # Helm 3 release 只读查看（解析 Secret）
     storage-trace.ts  # PVC → PV → Pod 存储链路
@@ -243,7 +286,7 @@ src/
 ## 安全提示
 
 - **本插件只读**：只注册 list / read / exec（排查命令）/ metrics 类工具，没有任何删除、修改、扩缩容能力。
-- `k8s_pod_exec` 具备在容器内执行命令的能力，等价于对该集群的 exec 权限；请确保使用者的 kubeconfig 本身权限最小化。
+- `k8s_pod_exec` 具备在容器内执行命令的能力，等价于对该集群的 exec 权限；请确保使用者的 kubeconfig 本身权限最小化。`k8s_search_pod_exec` 将该能力放大到多 Pod，内置破坏性命令拦截（rm / dd / mkfs / kill 等），且仅接受只读用途。
 - kubeconfig 可能包含 `exec` 认证插件，`@kubernetes/client-node` 默认允许执行这些插件。**只粘贴你信任的 kubeconfig**。如需限制，可调用 `KubeConfig.setExecCredentialPluginPolicy` 收紧。
 
 ## 要求
