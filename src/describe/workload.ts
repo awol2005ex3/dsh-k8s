@@ -1,5 +1,20 @@
-import type { KubeObject } from '../types.js'
+import type { DescribeContext, KubeObject } from '../types.js'
 import { conditionsOf, imageField, imagesOf, labelsOf, row } from './common.js'
+import { containerResourceLines, fetchContainerDefaults } from './resources.js'
+
+/** 输出 pod template 的容器资源配额块；未设置处用 namespace LimitRange 默认值补齐。 */
+async function podTemplateResources(
+  ctx: DescribeContext | undefined,
+  podSpec: KubeObject | undefined,
+): Promise<string[]> {
+  const containers = [
+    ...(podSpec?.initContainers ?? []),
+    ...(podSpec?.containers ?? []),
+  ]
+  if (containers.length === 0) return []
+  const defaults = await fetchContainerDefaults(ctx)
+  return ['pod resources:', ...containerResourceLines(containers, defaults)]
+}
 
 /** matchLabels → k=v,k=v。 */
 function selectorOf(obj: KubeObject): string {
@@ -18,7 +33,7 @@ export function summaryDeployment(obj: KubeObject): string {
   )
 }
 
-export function describeDeployment(obj: KubeObject): string[] {
+export async function describeDeployment(obj: KubeObject, ctx?: DescribeContext): Promise<string[]> {
   const s = obj.status ?? {}
   return [
     row(
@@ -37,6 +52,7 @@ export function describeDeployment(obj: KubeObject): string[] {
     `images=${imagesOf(obj.spec?.template?.spec) || '-'}`,
     `conditions=${conditionsOf(obj) || '-'}`,
     `labels=${labelsOf(obj) || '-'}`,
+    ...(await podTemplateResources(ctx, obj.spec?.template?.spec)),
   ]
 }
 
@@ -51,7 +67,7 @@ export function summaryStatefulSet(obj: KubeObject): string {
   )
 }
 
-export function describeStatefulSet(obj: KubeObject): string[] {
+export async function describeStatefulSet(obj: KubeObject, ctx?: DescribeContext): Promise<string[]> {
   const s = obj.status ?? {}
   return [
     row(
@@ -70,6 +86,7 @@ export function describeStatefulSet(obj: KubeObject): string[] {
     `images=${imagesOf(obj.spec?.template?.spec) || '-'}`,
     `conditions=${conditionsOf(obj) || '-'}`,
     `labels=${labelsOf(obj) || '-'}`,
+    ...(await podTemplateResources(ctx, obj.spec?.template?.spec)),
   ]
 }
 
@@ -84,7 +101,7 @@ export function summaryDaemonSet(obj: KubeObject): string {
   )
 }
 
-export function describeDaemonSet(obj: KubeObject): string[] {
+export async function describeDaemonSet(obj: KubeObject, ctx?: DescribeContext): Promise<string[]> {
   const s = obj.status ?? {}
   return [
     row(
@@ -102,6 +119,7 @@ export function describeDaemonSet(obj: KubeObject): string[] {
     `images=${imagesOf(obj.spec?.template?.spec) || '-'}`,
     `conditions=${conditionsOf(obj) || '-'}`,
     `labels=${labelsOf(obj) || '-'}`,
+    ...(await podTemplateResources(ctx, obj.spec?.template?.spec)),
   ]
 }
 
@@ -115,7 +133,7 @@ export function summaryReplicaSet(obj: KubeObject): string {
   )
 }
 
-export function describeReplicaSet(obj: KubeObject): string[] {
+export async function describeReplicaSet(obj: KubeObject, ctx?: DescribeContext): Promise<string[]> {
   const s = obj.status ?? {}
   return [
     row(
@@ -128,6 +146,7 @@ export function describeReplicaSet(obj: KubeObject): string[] {
     `selector=${selectorOf(obj) || '-'}`,
     `images=${imagesOf(obj.spec?.template?.spec) || '-'}`,
     `labels=${labelsOf(obj) || '-'}`,
+    ...(await podTemplateResources(ctx, obj.spec?.template?.spec)),
   ]
 }
 
@@ -142,7 +161,7 @@ export function summaryJob(obj: KubeObject): string {
   )
 }
 
-export function describeJob(obj: KubeObject): string[] {
+export async function describeJob(obj: KubeObject, ctx?: DescribeContext): Promise<string[]> {
   const s = obj.status ?? {}
   return [
     row(
@@ -161,6 +180,7 @@ export function describeJob(obj: KubeObject): string[] {
     `conditions=${conditionsOf(obj) || '-'}`,
     `images=${imagesOf(obj.spec?.template?.spec) || '-'}`,
     `labels=${labelsOf(obj) || '-'}`,
+    ...(await podTemplateResources(ctx, obj.spec?.template?.spec)),
   ]
 }
 
@@ -175,7 +195,7 @@ export function summaryCronJob(obj: KubeObject): string {
   )
 }
 
-export function describeCronJob(obj: KubeObject): string[] {
+export async function describeCronJob(obj: KubeObject, ctx?: DescribeContext): Promise<string[]> {
   const s = obj.status ?? {}
   return [
     row(
@@ -191,5 +211,6 @@ export function describeCronJob(obj: KubeObject): string[] {
     ),
     `images=${imagesOf(obj.spec?.jobTemplate?.spec?.template?.spec) || '-'}`,
     `labels=${labelsOf(obj) || '-'}`,
+    ...(await podTemplateResources(ctx, obj.spec?.jobTemplate?.spec?.template?.spec)),
   ]
 }

@@ -1,4 +1,4 @@
-import type { KubeClients, KubeObject } from '../types.js'
+import type { DescribeContext, KubeClients, KubeObject } from '../types.js'
 
 /** 资源的作用域：集群级资源忽略 namespace 参数。 */
 export type ResourceScope = 'Namespaced' | 'Cluster'
@@ -15,8 +15,8 @@ export interface ResourceDef {
   get(clients: KubeClients, namespace: string, name: string): Promise<unknown>
   /** 列表里的一行摘要；缺省只显示元信息。 */
   summary?(item: KubeObject): string
-  /** 单资源详情；缺省使用通用 spec/status JSON 兜底。 */
-  describe?(item: KubeObject): string[]
+  /** 单资源详情；缺省使用通用 spec/status JSON 兜底。ctx 用于补充 namespace 默认配额。 */
+  describe?(item: KubeObject, ctx?: DescribeContext): string[] | Promise<string[]>
 }
 
 /** kind（kubectl 风格复数）→ 资源定义。 */

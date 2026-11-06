@@ -22,6 +22,13 @@ import type {
 /** K8s 资源对象的松散形状：只读展示用途，避免与各 model 类型耦合。 */
 export type KubeObject = Record<string, any>
 
+/** describe 阶段的上下文：用于在输出负载详情时查询 namespace 默认配额（LimitRange）。 */
+export interface DescribeContext {
+  readonly clients: KubeClients
+  /** pod/workload 所属命名空间；集群级对象为空串。 */
+  readonly namespace: string
+}
+
 /** 单个集群配置：显示名 + 完整 kubeconfig（YAML）+ 可选 context 覆盖。 */
 export interface ClusterConfig {
   readonly name: string

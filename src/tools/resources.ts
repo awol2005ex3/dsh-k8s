@@ -113,7 +113,7 @@ export function registerResourceTools(ctx: Context, config: ConfigType): void {
         name: m.name || args.name,
         namespace: m.namespace,
         created: m.created,
-        details: def.describe?.(obj) ?? genericDescribe(obj),
+        details: (await def.describe?.(obj, { clients, namespace })) ?? genericDescribe(obj),
       }
     },
   }))

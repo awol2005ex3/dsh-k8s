@@ -1,5 +1,6 @@
-import type { KubeObject } from '../types.js'
+import type { DescribeContext, KubeObject } from '../types.js'
 import { conditionsOf, containerState, labelsOf, row } from './common.js'
+import { containerResourceLines, fetchContainerDefaults } from './resources.js'
 
 /** Pod 重启总次数。 */
 export function restartCountOf(pod: KubeObject): number {
@@ -19,8 +20,16 @@ export function summaryPod(pod: KubeObject): string {
   )
 }
 
-/** 单 Pod 详情：调度位置、条件、各容器状态（含 waiting/terminated 原因）。 */
-export function describePod(pod: KubeObject): string[] {
+/** Pod 模板里的 initContainers + containers，统一按容器对待。 */
+function allContainers(podSpec: KubeObject | undefined): KubeObject[] {
+  return [
+    ...(podSpec?.initContainers ?? []),
+    ...(podSpec?.containers ?? []),
+  ]
+}
+
+/** 单 Pod 详情：调度位置、条件、各容器状态（含 waiting/terminated 原因）与资源配额。 */
+export async function describePod(pod: KubeObject, ctx?: DescribeContext): Promise<string[]> {
   const status = pod.status ?? {}
   const containers: KubeObject[] = status.containerStatuses ?? []
   const owners = (pod.metadata?.ownerReferences ?? []).map(
@@ -44,8 +53,17 @@ export function describePod(pod: KubeObject): string[] {
     `owner=${owners.join(',') || '-'}`,
     `conditions=${conditionsOf(pod) || '-'}`,
     `labels=${labelsOf(pod) || '-'}`,
-    'containers:',
   ]
+
+  // 容器资源配额：容器未显式设置时回退到 namespace LimitRange 默认值。
+  const podContainers = allContainers(pod.spec)
+  if (podContainers.length > 0) {
+    lines.push('resources:')
+    const defaults = await fetchContainerDefaults(ctx)
+    lines.push(...containerResourceLines(podContainers, defaults))
+  }
+
+  lines.push('containers:')
 
   if (containers.length === 0) lines.push('  （无容器状态）')
   for (const c of containers) {
