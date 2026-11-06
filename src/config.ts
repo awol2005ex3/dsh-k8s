@@ -60,6 +60,16 @@ export function clientsFor(kc: k8s.KubeConfig): KubeClients {
     admissionregistration: kc.makeApiClient(k8s.AdmissionregistrationV1Api),
     customObjects: kc.makeApiClient(k8s.CustomObjectsApi),
     networking: kc.makeApiClient(k8s.NetworkingV1Api),
+    discovery: kc.makeApiClient(k8s.DiscoveryV1Api),
+    autoscaling: kc.makeApiClient(k8s.AutoscalingV2Api),
+    policy: kc.makeApiClient(k8s.PolicyV1Api),
+    storage: kc.makeApiClient(k8s.StorageV1Api),
+    rbac: kc.makeApiClient(k8s.RbacAuthorizationV1Api),
+    scheduling: kc.makeApiClient(k8s.SchedulingV1Api),
+    node: kc.makeApiClient(k8s.NodeV1Api),
+    coordination: kc.makeApiClient(k8s.CoordinationV1Api),
+    certificates: kc.makeApiClient(k8s.CertificatesV1Api),
+    apiregistration: kc.makeApiClient(k8s.ApiregistrationV1Api),
   }
 }
 

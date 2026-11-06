@@ -7,7 +7,20 @@ import type {
   AdmissionregistrationV1Api,
   CustomObjectsApi,
   NetworkingV1Api,
+  DiscoveryV1Api,
+  AutoscalingV2Api,
+  PolicyV1Api,
+  StorageV1Api,
+  RbacAuthorizationV1Api,
+  SchedulingV1Api,
+  NodeV1Api,
+  CoordinationV1Api,
+  CertificatesV1Api,
+  ApiregistrationV1Api,
 } from '@kubernetes/client-node'
+
+/** K8s 资源对象的松散形状：只读展示用途，避免与各 model 类型耦合。 */
+export type KubeObject = Record<string, any>
 
 /** 单个集群配置：显示名 + 完整 kubeconfig（YAML）+ 可选 context 覆盖。 */
 export interface ClusterConfig {
@@ -33,4 +46,14 @@ export interface KubeClients {
   admissionregistration: AdmissionregistrationV1Api
   customObjects: CustomObjectsApi
   networking: NetworkingV1Api
+  discovery: DiscoveryV1Api
+  autoscaling: AutoscalingV2Api
+  policy: PolicyV1Api
+  storage: StorageV1Api
+  rbac: RbacAuthorizationV1Api
+  scheduling: SchedulingV1Api
+  node: NodeV1Api
+  coordination: CoordinationV1Api
+  certificates: CertificatesV1Api
+  apiregistration: ApiregistrationV1Api
 }

@@ -62,15 +62,20 @@ plugin:
 | 工具 | 说明 |
 |------|------|
 | `k8s_list_pods` | 列出指定命名空间的 Pod、运行阶段与重启次数 |
-| `k8s_read_pod_logs` | 读取指定 Pod 的日志（默认最近 200 行） |
-| `k8s_list_resources` | 列出非 Pod 组件（只读）。`kind` 取值见下表 |
+| `k8s_read_pod_logs` | 读取指定 Pod 的日志（默认最近 200 行）；支持 `container`、`previous`（上一次容器实例，排查 CrashLoopBackOff）与 `sinceSeconds` |
+| `k8s_list_resources` | 按 `kind` 列出任意已支持的基础资源。`namespace` 留空或填 `*` 表示所有命名空间（集群级资源忽略该参数） |
+| `k8s_get_resource` | 查看单个资源详情：Pod / Node / Service / 工作负载有专门摘要，其余类型回退为 spec/status JSON |
 
-`k8s_list_resources` 支持的 `kind`：
+`k8s_list_resources` / `k8s_get_resource` 支持的 `kind`：
 
-`deployments` · `statefulsets` · `daemonsets` · `replicasets` · `jobs` · `cronjobs` ·
-`services` · `configmaps` · `secrets` · `events` · `endpoints` · `serviceaccounts` · `pvcs`
+- **核心**：`pods` · `namespaces` · `nodes` · `services` · `configmaps` · `secrets` · `events` · `serviceaccounts` · `resourcequotas` · `limitranges`
+- **工作负载**：`deployments` · `statefulsets` · `daemonsets` · `replicasets` · `jobs` · `cronjobs`
+- **网络**：`endpoints` · `endpointslices` · `networkpolicies` · `ingresses`
+- **存储**：`pvs` · `pvcs` · `storageclasses` · `csidrivers` · `csinodes` · `volumeattachments`
+- **扩缩容 / 策略**：`horizontalpodautoscalers` · `poddisruptionbudgets`
+- **RBAC / 调度 / 其他**：`roles` · `rolebindings` · `clusterroles` · `clusterrolebindings` · `priorityclasses` · `runtimeclasses` · `leases` · `certificatesigningrequests` · `apiservices`
 
-> Secret 只返回名称/命名空间/创建时间等元信息，不返回内容。
+> Secret 只返回类型与 key 数量等元信息，不返回内容。
 
 ### 网络入口
 
@@ -95,9 +100,9 @@ plugin:
 
 | 工具 | 说明 |
 |------|------|
-| `k8s_list_webhooks` | 列出 Validating / Mutating Webhook，含调用目标（Service 或 URL）、`failurePolicy`、`sideEffects`、caBundle 是否存在与匹配规则 |
+| `k8s_list_webhooks` | 列出 Validating / Mutating Webhook，含调用目标（Service 或 URL）、`failurePolicy`、`sideEffects`、匹配规则，以及 caBundle 的证书解析（Subject / 有效期 / 是否过期） |
 
-示例：`{ cluster: "prod", type: "validating" }`。用于排查准入拒绝、Webhook 超时与证书（caBundle）问题。
+示例：`{ cluster: "prod", type: "validating" }`。用于排查准入拒绝、Webhook 超时与证书（caBundle）过期问题。
 
 ### CRD
 
@@ -123,6 +128,52 @@ plugin:
 
 集群未安装 metrics-server 时会直接报错，属预期行为。
 
+### Ingress 体检与链路追踪
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_audit_ingresses` | 体检 Ingress：TLS Secret 是否存在、证书是否过期/即将过期（`expireDays`，缺省 30）、证书是否覆盖 host、backend Service 与端口是否存在、是否缺 `ingressClassName` |
+| `k8s_trace_ingress` | 按 URL / host 追踪 Ingress 链路：Ingress → Service → Endpoints/EndpointSlice → Pods，附带 TLS 证书摘要；用于定位 404 / 502 / 503 是规则、Service 还是 Pod 的问题 |
+
+`k8s_trace_ingress` 示例：`{ cluster: "prod", url: "https://www.example.com/api" }`。
+路径按 `Exact` / `Prefix` 语义匹配，host 支持单层通配符；`ImplementationSpecific` 按 Prefix 处理并标注。
+
+### 多 Pod 日志
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_read_pod_logs_multi` | 按工作负载（`kind` + `name`）或 `labelSelector` 批量读取多个 Pod 的日志，等价于 stern / `kubectl logs -l`，但不需要外部命令。单次默认最多 20 个 Pod、每容器 100 行，可调 `maxPods` / `tailLines` |
+
+并发控制在 5 以内，自动排除已 Succeeded 的 Pod；多 Pod 时每行带 `[pod/container]` 前缀。
+
+### Helm release（不依赖 helm 命令）
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_list_helm_releases` | 列出 Helm 3 release（解析 `sh.helm.release.v1.*` Secret），含 name / ns / revision / status / chart / version；默认只列最新 revision，可按 `status` 过滤 |
+| `k8s_get_helm_release` | 查看单个 release 详情：chart 元数据、chart 默认 values、用户 values、渲染后 manifest、templates 与 NOTES |
+
+`k8s_get_helm_release` 通过 `include` 选择要返回的内容（`meta` / `values` / `config` / `manifest` / `chart` / `templates` / `notes` / `all`），缺省只返回元数据。**注意**：values 与 manifest 可能含明文密钥，需显式 `include` 才返回。
+
+### 存储链路
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_trace_storage` | 追踪 PVC → PV（及 StorageClass）→ 使用该 PVC 的 Pod（含挂载路径）；也支持从 PV 反查。用于定位 Pending 的 PVC、异常 PV 与挂载失败 |
+
+### DNS 域名
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_get_dns_names` | 读 coredns Corefile 得出 cluster domain，返回 Service 的完整 FQDN 与简写；也支持 StatefulSet headless 下的 Pod 域名 |
+
+### 事件与诊断
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_get_events` | 查询事件（默认只返回 Warning），可按 namespace / `involvedKind` / `involvedName` / `reason` / `sinceSeconds` 过滤，按最近时间排序。用于定位 CrashLoopBackOff、Pending、ImagePullBackOff、调度失败等根因 |
+| `k8s_explain_networkpolicy` | 解释 NetworkPolicy 对指定 Pod 的覆盖：列出选中该 Pod 的策略、每条 Ingress/Egress 规则（podSelector / namespaceSelector / ipBlock / 端口）是否命中，以及集群是否启用默认拒绝。用于排查 Pod 间网络不通 |
+
 ## 源码结构
 
 ```
@@ -134,13 +185,42 @@ src/
   client.ts           # 浏览器半：设置面板（由 scripts/wrap-client.mjs 包装）
   tools/
     clusters.ts       # 集群 / 连接测试 / 节点
-    workloads.ts      # Pod / 日志 / 非 Pod 组件
+    workloads.ts      # Pod 列表 / 日志
+    resources.ts      # 基础资源列表与单资源详情
     crds.ts           # CRD 定义与实例
     networking.ts     # Ingress / IngressClass
     webhooks.ts       # 准入 Webhook（Validating / Mutating）
     gateway.ts        # Gateway API
     exec.ts           # Pod 内命令执行
     metrics.ts        # metrics-server 指标
+    multi-logs.ts     # 多 Pod 日志（按工作负载 / labelSelector）
+    ingress.ts        # Ingress 体检（TLS/后端）与 URL 链路追踪
+    helm.ts           # Helm 3 release 只读查看（解析 Secret）
+    storage-trace.ts  # PVC → PV → Pod 存储链路
+    domains.ts        # DNS 域名查询（coredns Corefile + Service FQDN）
+    events.ts         # 事件过滤诊断
+    network-policy.ts # NetworkPolicy 覆盖分析
+  certs.ts            # 证书解析（X509 摘要 / SAN / 剩余天数）
+  resources/          # 资源注册表，按 API 领域拆分
+    index.ts          # 汇总所有领域模块
+    types.ts          # ResourceDef 契约
+    core.ts           # Pod / Namespace / Node / Service / ConfigMap / Secret / Event / Quota / LimitRange
+    workloads.ts      # Deployment / StatefulSet / DaemonSet / ReplicaSet / Job / CronJob
+    networking.ts     # Endpoints / EndpointSlice / NetworkPolicy / Ingress
+    storage.ts        # PV / PVC / StorageClass / CSI 资源
+    autoscaling.ts    # HPA
+    policy.ts         # PDB
+    rbac.ts           # Role / RoleBinding / ClusterRole / ClusterRoleBinding
+    scheduling.ts     # PriorityClass / RuntimeClass
+    coordination.ts   # Lease
+    certificates.ts   # CSR
+    apiregistration.ts# APIService
+  describe/           # 单资源详情渲染，按资源族拆分
+    common.ts         # 通用格式化与 spec/status JSON 兜底
+    pod.ts
+    workload.ts
+    service.ts
+    node.ts
 ```
 
 ## 安全提示

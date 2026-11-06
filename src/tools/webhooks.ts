@@ -3,6 +3,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { kubeconfigFor, clientsFor } from '../config.js'
 import type { Config as ConfigType } from '../types.js'
 import { renderList } from '../helpers.js'
+import { parseCertificates, decodeCaBundle } from '../certs.js'
 
 type WebhookType = 'validating' | 'mutating'
 
@@ -32,7 +33,8 @@ function targetOf(clientConfig: {
 export function registerWebhookTools(ctx: Context, config: ConfigType): void {
   ctx.tools.register(defineTool({
     name: 'k8s_list_webhooks',
-    description: '列出准入 Webhook（ValidatingWebhookConfiguration / MutatingWebhookConfiguration），含调用目标、failurePolicy、caBundle 与匹配规则。用于排查准入拒绝、超时与证书问题。只读。',
+    description: '列出准入 Webhook（ValidatingWebhookConfiguration / MutatingWebhookConfiguration），含调用目标、failurePolicy、caBundle 与匹配规则。'
+      + 'caBundle 会解析出 Subject 与有效期，便于排查证书过期导致的准入失败。只读。',
     parameters: {
       cluster: { type: 'string', required: true, description: '已配置集群的名称。' },
       type: {
@@ -52,7 +54,9 @@ export function registerWebhookTools(ctx: Context, config: ConfigType): void {
                 config: { type: 'string' }, type: { type: 'string' },
                 name: { type: 'string' }, target: { type: 'string' },
                 failurePolicy: { type: 'string' }, sideEffects: { type: 'string' },
-                caBundle: { type: 'boolean' }, rules: { type: 'string' },
+                caBundle: { type: 'boolean' }, caSubject: { type: 'string' },
+                caExpires: { type: 'string' }, caDaysLeft: { type: 'integer' },
+                caExpired: { type: 'boolean' }, rules: { type: 'string' },
               },
             },
           },
@@ -65,6 +69,8 @@ export function registerWebhookTools(ctx: Context, config: ConfigType): void {
           `failure=${w.failurePolicy || '-'}`,
           `sideEffects=${w.sideEffects || '-'}`,
           `caBundle=${w.caBundle ? 'yes' : 'no'}`,
+          w.caSubject ? `CA=${w.caSubject}` : '',
+          w.caExpires ? `CA expires=${w.caExpires}${w.caExpired ? '(EXPIRED)' : ` (${w.caDaysLeft}d)`}` : '',
           w.rules ? `rules=${w.rules}` : '',
         ].filter(Boolean).join('  ')),
         '（未发现准入 Webhook）',
@@ -87,16 +93,24 @@ export function registerWebhookTools(ctx: Context, config: ConfigType): void {
 
       const webhooks = results.flatMap(({ type: t, items }) => items.flatMap((cfg) => {
         const configName = cfg.metadata?.name ?? ''
-        return (cfg.webhooks ?? []).map((hook) => ({
-          config: configName,
-          type: t,
-          name: hook.name,
-          target: targetOf(hook.clientConfig),
-          failurePolicy: hook.failurePolicy ?? '',
-          sideEffects: hook.sideEffects ?? '',
-          caBundle: Boolean(hook.clientConfig?.caBundle),
-          rules: rulesOf(hook),
-        }))
+        return (cfg.webhooks ?? []).map((hook) => {
+          const certs = parseCertificates(decodeCaBundle(hook.clientConfig?.caBundle))
+          const ca = certs[0]
+          return {
+            config: configName,
+            type: t,
+            name: hook.name,
+            target: targetOf(hook.clientConfig),
+            failurePolicy: hook.failurePolicy ?? '',
+            sideEffects: hook.sideEffects ?? '',
+            caBundle: Boolean(hook.clientConfig?.caBundle),
+            caSubject: ca?.subject ?? '',
+            caExpires: ca ? ca.notAfter.slice(0, 10) : '',
+            caDaysLeft: ca?.daysLeft ?? 0,
+            caExpired: ca?.expired ?? false,
+            rules: rulesOf(hook),
+          }
+        })
       }))
       return { webhooks }
     },
