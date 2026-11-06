@@ -177,6 +177,17 @@ plugin:
 | `k8s_trace_istio` | 追踪 Istio VirtualService 链路：按 host 匹配 VS → 路由到的 Service（含 DestinationRule 子集/权重）与引用的 Gateway；自动探测 CRD 版本。排查 Istio 网格 404 / 503 |
 | `k8s_get_component_status` | 读取集群组件状态（`/api/v1/componentstatuses`）。**该 API 在 1.19+ 已弃用**，部分集群返回空或报错，属预期行为 |
 
+## 内置 Runtime Skills
+
+插件附带两个可按需加载的运维知识卡（Runtime Skill），模型在排查对应故障现象时可加载，不写任何集群状态，只做取证与初判：
+
+| skill 名 | 加载时机 |
+|--------|---------|
+| `dsh-k8s-jvm-diagnosis` | 排查 Pod 内 JVM 参数（`-Xmx` / `-Xms` / `-Xmn` / 总线程数）是否违反 Pod request/limit 的不合理问题时加载。涵盖内存超限、GC 频繁、线程堆积、堆上限被压低等场景。 |
+| `dsh-k8s-low-kernel-thread` | 排查低版本内核下进程/线程数超限（如 nginx `worker_processes auto` 无限增长、Node cluster 多进程失控）导致节点崩溃时加载。涵盖内核版本偏低、`pid_max` 不足、cgroup `pids.max` 缺失、级联 OOM 等场景。 |
+
+两张卡正文位于 `skills/` 目录，可单独查阅或覆盖。
+
 ## 源码结构
 
 ```
