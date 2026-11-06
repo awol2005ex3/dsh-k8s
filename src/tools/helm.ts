@@ -35,33 +35,54 @@ function truncate(value: string, limit: number): string {
 }
 
 /**
- * 解码 Helm release。链路：Secret.data.release（base64 字符串）
- * → 内层 base64 文本 → gzip → JSON。全程本地解析，不调用 helm 命令。
+ * 解码 Helm release。链路（Helm 3 Secret 存储）：
+ *   secret.data.release（外层 base64 字符串）
+ *   → 第一层 base64 解码 → 得到内层 base64 字符串文本
+ *   → 第二层 base64 解码 → 得到 gzip 压缩字节
+ *   → gunzip → JSON
+ * 全程本地解析，不调用 helm 命令。
  */
-function releaseBytes(raw: unknown): Buffer | null {
-  if (typeof raw === 'string') return raw ? Buffer.from(raw, 'base64') : null
-  if (raw instanceof Uint8Array) {
-    const buf = Buffer.from(raw)
-    if (buf[0] === 0x1f && buf[1] === 0x8b) return buf
-    const decoded = Buffer.from(buf.toString('utf8'), 'base64')
-    return decoded.length > 0 ? decoded : buf
-  }
-  return null
-}
-
 function decodeRelease(secret: Op): Op | null {
   const raw = secret.data?.release
-  if (!raw) return null
-  const inner = releaseBytes(raw)
-  if (!inner) return null
-  let payload = inner
-  if (inner[0] === 0x1f && inner[1] === 0x8b) {
+  if (raw === undefined || raw === null) return null
+
+  // 第一层 base64 解码 → 内层 base64 字符串文本（也可能是 gzip 字节或 JSON）
+  const layer1 = Buffer.from(String(raw), 'base64').toString('utf8')
+  if (!layer1) return null
+
+  let payload: Buffer
+  const trimmed = layer1.trim()
+
+  // 第二层：若第一层结果像 base64 文本，再解码一次；否则直接用第一层
+  if (/^[A-Za-z0-9+/=\s]+$/.test(trimmed)) {
     try {
-      payload = gunzipSync(inner)
+      const layer2 = Buffer.from(trimmed, 'base64')
+      // 第二层是 gzip 魔数 → gunzip；否则可能就是 JSON 原文
+      if (layer2[0] === 0x1f && layer2[1] === 0x8b) {
+        try {
+          payload = gunzipSync(layer2)
+        } catch {
+          payload = layer2
+        }
+      } else {
+        payload = layer2
+      }
+    } catch {
+      payload = Buffer.from(layer1, 'utf8')
+    }
+  } else {
+    payload = Buffer.from(layer1, 'utf8')
+  }
+
+  // 兜底：payload 本身仍是 gzip（某些后端只存一层 base64）
+  if (payload[0] === 0x1f && payload[1] === 0x8b) {
+    try {
+      payload = gunzipSync(payload)
     } catch {
       return null
     }
   }
+
   try {
     const parsed = JSON.parse(payload.toString('utf8'))
     return parsed && typeof parsed === 'object' ? parsed as Op : null
@@ -72,19 +93,15 @@ function decodeRelease(secret: Op): Op | null {
 
 /** 读取 Helm 3 Secret；label 缺失时按名称前缀兜底（兼容老 release）。 */
 async function loadReleases(clients: Clients, namespace?: string): Promise<LoadedRelease[]> {
+  // 主路径：按名称前缀扫描（不依赖 owner=helm label，华为 CCE 等后端常缺该 label）。
+  // 先按 namespace 过滤出候选 secret，再逐条解析。
   let secrets: Op[] = []
-  try {
-    const res = namespace
-      ? await clients.core.listNamespacedSecret({ namespace, labelSelector: 'owner=helm' })
-      : await clients.core.listSecretForAllNamespaces({ labelSelector: 'owner=helm' })
-    secrets = (res.items ?? []) as unknown as Op[]
-  } catch {
-    secrets = []
-  }
-
-  if (secrets.length === 0 && namespace) {
+  if (namespace) {
     const res = await clients.core.listNamespacedSecret({ namespace }) as unknown as Op
-    secrets = (res.items ?? []).filter((s: Op) => RELEASE_SECRET.test(text(s.metadata?.name)))
+    secrets = (res.items ?? []) as unknown as Op[]
+  } else {
+    const res = await clients.core.listSecretForAllNamespaces({}) as unknown as Op
+    secrets = (res.items ?? []) as unknown as Op[]
   }
 
   const loaded: LoadedRelease[] = []

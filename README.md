@@ -173,6 +173,9 @@ plugin:
 |------|------|
 | `k8s_get_events` | 查询事件（默认只返回 Warning），可按 namespace / `involvedKind` / `involvedName` / `reason` / `sinceSeconds` 过滤，按最近时间排序。用于定位 CrashLoopBackOff、Pending、ImagePullBackOff、调度失败等根因 |
 | `k8s_explain_networkpolicy` | 解释 NetworkPolicy 对指定 Pod 的覆盖：列出选中该 Pod 的策略、每条 Ingress/Egress 规则（podSelector / namespaceSelector / ipBlock / 端口）是否命中，以及集群是否启用默认拒绝。用于排查 Pod 间网络不通 |
+| `k8s_diagnose_pod` | 一步排障单个 Pod：聚合 Pod 阶段/条件、各容器状态（Waiting/Terminated 原因与退出码）、最近 Warning 事件、异常容器上次日志尾部。定位 CrashLoopBackOff / Pending / ImagePullBackOff / 未就绪 |
+| `k8s_trace_istio` | 追踪 Istio VirtualService 链路：按 host 匹配 VS → 路由到的 Service（含 DestinationRule 子集/权重）与引用的 Gateway；自动探测 CRD 版本。排查 Istio 网格 404 / 503 |
+| `k8s_get_component_status` | 读取集群组件状态（`/api/v1/componentstatuses`）。**该 API 在 1.19+ 已弃用**，部分集群返回空或报错，属预期行为 |
 
 ## 源码结构
 
@@ -200,6 +203,9 @@ src/
     domains.ts        # DNS 域名查询（coredns Corefile + Service FQDN）
     events.ts         # 事件过滤诊断
     network-policy.ts # NetworkPolicy 覆盖分析
+    diagnose.ts       # 单 Pod 一步排障
+    istio.ts          # Istio VirtualService 链路追踪
+    component-status.ts # 集群组件状态（raw HTTP）
   certs.ts            # 证书解析（X509 摘要 / SAN / 剩余天数）
   resources/          # 资源注册表，按 API 领域拆分
     index.ts          # 汇总所有领域模块

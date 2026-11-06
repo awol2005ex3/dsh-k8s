@@ -15,6 +15,9 @@ import { registerStorageTraceTools } from './tools/storage-trace.js'
 import { registerDomainTools } from './tools/domains.js'
 import { registerEventTools } from './tools/events.js'
 import { registerNetworkPolicyTools } from './tools/network-policy.js'
+import { registerDiagnoseTools } from './tools/diagnose.js'
+import { registerIstioTools } from './tools/istio.js'
+import { registerComponentStatusTools } from './tools/component-status.js'
 
 // dsh 约定：入口模块导出 Config schema 常量（volatile 字段渲染为设置表单）。
 export { Config } from './config.js'
@@ -44,6 +47,9 @@ export const inject = ['tools'] as const
  *   domains.ts   — DNS 域名查询（coredns Corefile + Service FQDN）
  *   events.ts    — 事件过滤诊断
  *   network-policy.ts — NetworkPolicy 覆盖分析
+ *   diagnose.ts  — 单 Pod 一步排障
+ *   istio.ts     — Istio VirtualService 链路追踪
+ *   component-status.ts — 集群组件状态
  */
 export function apply(ctx: Context, config: import('./types.js').Config): void {
   registerClusterTools(ctx, config)
@@ -62,4 +68,7 @@ export function apply(ctx: Context, config: import('./types.js').Config): void {
   registerDomainTools(ctx, config)
   registerEventTools(ctx, config)
   registerNetworkPolicyTools(ctx, config)
+  registerDiagnoseTools(ctx, config)
+  registerIstioTools(ctx, config)
+  registerComponentStatusTools(ctx, config)
 }
