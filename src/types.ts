@@ -4,7 +4,9 @@ import type {
   AppsV1Api,
   BatchV1Api,
   ApiextensionsV1Api,
+  AdmissionregistrationV1Api,
   CustomObjectsApi,
+  NetworkingV1Api,
 } from '@kubernetes/client-node'
 
 /** 单个集群配置：显示名 + 完整 kubeconfig（YAML）+ 可选 context 覆盖。 */
@@ -28,5 +30,7 @@ export interface KubeClients {
   apps: AppsV1Api
   batch: BatchV1Api
   apiextensions: ApiextensionsV1Api
+  admissionregistration: AdmissionregistrationV1Api
   customObjects: CustomObjectsApi
+  networking: NetworkingV1Api
 }

@@ -72,6 +72,33 @@ plugin:
 
 > Secret 只返回名称/命名空间/创建时间等元信息，不返回内容。
 
+### 网络入口
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_list_ingresses` | 列出 Ingress，含 `class`、主机名、TLS 与负载均衡地址；不填 `namespace` 时读取所有命名空间 |
+| `k8s_list_ingress_classes` | 列出 IngressClass，含 controller、是否为默认类与 parameters |
+
+### Gateway API
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_list_gateway_api` | 查看 Gateway API 资源，自动发现集群实际安装的 CRD 与版本；`kind` 缺省 `all` |
+
+`kind` 可选值：
+
+`gatewayclasses` · `gateways` · `httproutes` · `grpcroutes` · `tcproutes` · `tlsroutes` · `udproutes` · `referencegrants` · `backendtlspolicies`
+
+> 未安装 Gateway API CRD 的集群会返回 `installed: false`，不会报错。Gateway 摘要含 class / listeners / 地址 / Accepted / Programmed，路由摘要含 hosts / parents / backends / Accepted。
+
+### 准入 Webhook
+
+| 工具 | 说明 |
+|------|------|
+| `k8s_list_webhooks` | 列出 Validating / Mutating Webhook，含调用目标（Service 或 URL）、`failurePolicy`、`sideEffects`、caBundle 是否存在与匹配规则 |
+
+示例：`{ cluster: "prod", type: "validating" }`。用于排查准入拒绝、Webhook 超时与证书（caBundle）问题。
+
 ### CRD
 
 | 工具 | 说明 |
@@ -109,6 +136,9 @@ src/
     clusters.ts       # 集群 / 连接测试 / 节点
     workloads.ts      # Pod / 日志 / 非 Pod 组件
     crds.ts           # CRD 定义与实例
+    networking.ts     # Ingress / IngressClass
+    webhooks.ts       # 准入 Webhook（Validating / Mutating）
+    gateway.ts        # Gateway API
     exec.ts           # Pod 内命令执行
     metrics.ts        # metrics-server 指标
 ```

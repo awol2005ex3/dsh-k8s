@@ -57,7 +57,9 @@ export function clientsFor(kc: k8s.KubeConfig): KubeClients {
     apps: kc.makeApiClient(k8s.AppsV1Api),
     batch: kc.makeApiClient(k8s.BatchV1Api),
     apiextensions: kc.makeApiClient(k8s.ApiextensionsV1Api),
+    admissionregistration: kc.makeApiClient(k8s.AdmissionregistrationV1Api),
     customObjects: kc.makeApiClient(k8s.CustomObjectsApi),
+    networking: kc.makeApiClient(k8s.NetworkingV1Api),
   }
 }
 
